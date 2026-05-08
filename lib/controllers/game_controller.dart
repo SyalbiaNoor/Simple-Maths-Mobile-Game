@@ -106,13 +106,17 @@ class GameController extends GetxController {
 
     horizontalHandleX.value += dx;
 
+    final double maxHorizontalRange = (containerWidth - 42) > 0
+        ? (containerWidth - 42)
+        : 1; // ensure positive divisor
+
     horizontalHandleX.value = horizontalHandleX.value.clamp(
       0,
-      containerWidth - 40,
+      maxHorizontalRange,
     );
 
     cols.value =
-        ((horizontalHandleX.value / (containerWidth - 40)) * 9).round() + 1;
+        ((horizontalHandleX.value / maxHorizontalRange) * 9).round() + 1;
 
     updateGrid();
   }
@@ -122,13 +126,13 @@ class GameController extends GetxController {
 
     verticalHandleY.value += dy;
 
-    verticalHandleY.value = verticalHandleY.value.clamp(
-      0,
-      containerHeight - 40,
-    );
+    final double maxVerticalRange = (containerHeight - 84) > 0
+        ? (containerHeight - 84)
+        : 1; // keep positive divisor (triangle height accounted)
 
-    rows.value =
-        ((verticalHandleY.value / (containerHeight - 40)) * 9).round() + 1;
+    verticalHandleY.value = verticalHandleY.value.clamp(0, maxVerticalRange);
+
+    rows.value = ((verticalHandleY.value / maxVerticalRange) * 9).round() + 1;
 
     updateGrid();
   }
@@ -192,7 +196,7 @@ class GameController extends GetxController {
       remainingChances--;
 
       if (remainingChances > 0) {
-        resultMessage.value = "Wrong! ${remainingChances} chance left";
+        resultMessage.value = "Wrong! $remainingChances chance left";
       } else {
         resultMessage.value = "Wrong!";
 

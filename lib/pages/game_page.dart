@@ -149,7 +149,14 @@ class GamePage extends StatelessWidget {
                       Container(height: 44),
 
                       Positioned(
-                        left: controller.horizontalHandleX.value,
+                        left: controller.horizontalHandleX.value
+                            .clamp(
+                              0,
+                              (controller.containerWidth - 42) > 0
+                                  ? controller.containerWidth - 42
+                                  : 0,
+                            )
+                            .toDouble(),
                         child: GestureDetector(
                           onHorizontalDragUpdate: (details) {
                             controller.updateColumnsFromDrag(details.delta.dx);
@@ -173,11 +180,18 @@ class GamePage extends StatelessWidget {
                     children: [
                       SizedBox(
                         width: 44,
-                        height: controller.containerHeight,
+                        height: controller.containerHeight - 42,
                         child: Stack(
                           children: [
                             Positioned(
-                              top: controller.verticalHandleY.value,
+                              top: controller.verticalHandleY.value
+                                  .clamp(
+                                    0,
+                                    (controller.containerHeight - 84) > 0
+                                        ? controller.containerHeight - 84
+                                        : 0,
+                                  )
+                                  .toDouble(),
                               child: GestureDetector(
                                 onVerticalDragUpdate: (details) {
                                   controller.updateRowsFromDrag(
@@ -274,11 +288,18 @@ class GamePage extends StatelessWidget {
 
                       SizedBox(
                         width: 44,
-                        height: controller.containerHeight,
+                        height: controller.containerHeight - 42,
                         child: Stack(
                           children: [
                             Positioned(
-                              top: controller.verticalHandleY.value,
+                              top: controller.verticalHandleY.value
+                                  .clamp(
+                                    0,
+                                    (controller.containerHeight - 84) > 0
+                                        ? controller.containerHeight - 84
+                                        : 0,
+                                  )
+                                  .toDouble(),
                               child: GestureDetector(
                                 onVerticalDragUpdate: (details) {
                                   controller.updateRowsFromDrag(
@@ -308,7 +329,14 @@ class GamePage extends StatelessWidget {
                       Container(height: 44),
 
                       Positioned(
-                        left: controller.horizontalHandleX.value,
+                        left: controller.horizontalHandleX.value
+                            .clamp(
+                              0,
+                              (controller.containerWidth - 42) > 0
+                                  ? controller.containerWidth - 42
+                                  : 0,
+                            )
+                            .toDouble(),
                         child: GestureDetector(
                           onHorizontalDragUpdate: (details) {
                             controller.updateColumnsFromDrag(details.delta.dx);
@@ -351,6 +379,11 @@ class GamePage extends StatelessWidget {
                         onTap: () {
                           controller.clearSelection();
                         },
+                        // slightly darken the foreground (text & icon) while keeping the same tone
+                        iconColor: _darken(const Color(0xFFF5A623), 0.22),
+                        textColor: _darken(const Color(0xFFF5A623), 0.22),
+                        // make avatar slightly translucent so the darker icon contrasts
+                        avatarColor: const Color(0xFFF5A623).withOpacity(0.94),
                       ),
                     ),
 
@@ -599,7 +632,14 @@ class GamePage extends StatelessWidget {
     required Color color,
     required IconData icon,
     required VoidCallback onTap,
+    Color? iconColor,
+    Color? textColor,
+    Color? avatarColor,
   }) {
+    final Color usedAvatar = avatarColor ?? color;
+    final Color usedIcon = iconColor ?? Colors.white;
+    final Color usedText = textColor ?? color;
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -613,8 +653,8 @@ class GamePage extends StatelessWidget {
           children: [
             CircleAvatar(
               radius: 13,
-              backgroundColor: color,
-              child: Icon(icon, color: Colors.white, size: 15),
+              backgroundColor: usedAvatar,
+              child: Icon(icon, color: usedIcon, size: 15),
             ),
 
             const SizedBox(width: 6),
@@ -622,7 +662,7 @@ class GamePage extends StatelessWidget {
             Text(
               text,
               style: TextStyle(
-                color: color,
+                color: usedText,
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
               ),
@@ -631,6 +671,12 @@ class GamePage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  static Color _darken(Color color, [double amount = 0.1]) {
+    final hsl = HSLColor.fromColor(color);
+    final hslDark = hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0));
+    return hslDark.toColor();
   }
 }
 
