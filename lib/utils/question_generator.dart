@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'package:flutter/material.dart';
+
 import '../models/question_model.dart';
 
 class QuestionGenerator {
@@ -23,7 +25,20 @@ class QuestionGenerator {
 
         numerator = random.nextInt(denominator) + 1;
 
-        items.add(FractionItem(numerator: numerator, denominator: denominator));
+        // assign distinct colors to each fraction (order: orange, pink, blue)
+        final List<Color> palette = [
+          const Color(0xFFF5A623),
+          const Color(0xFFE91E63),
+          const Color(0xFF4DA6FF),
+        ];
+
+        items.add(
+          FractionItem(
+            numerator: numerator,
+            denominator: denominator,
+            color: palette[i % palette.length],
+          ),
+        );
       }
 
       double total = 0;

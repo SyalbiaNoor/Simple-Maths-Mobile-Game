@@ -11,7 +11,14 @@ class GameController extends GetxController {
 
   Rx<QuestionModel?> currentQuestion = Rx<QuestionModel?>(null);
 
-  RxList<bool> selectedCells = <bool>[].obs;
+  // For visualization we keep an assigned owner per cell (which fraction it belongs to)
+  RxList<int?> assignedCells = <int?>[].obs;
+
+  // active fraction index selected by the user for tapping/selecting
+  RxInt activeFraction = 0.obs;
+
+  // expected counts per fraction (based on proportional assignment)
+  List<int> expectedCounts = [];
 
   RxString resultMessage = ''.obs;
 
@@ -27,6 +34,7 @@ class GameController extends GetxController {
   int maxTime = 300;
 
   Timer? timer;
+  Timer? _messageTimer;
 
   bool timerStarted = false;
 
@@ -98,7 +106,61 @@ class GameController extends GetxController {
   void updateGrid() {
     int totalCells = rows.value * cols.value;
 
-    selectedCells.value = List.generate(totalCells, (_) => false);
+    // initialize per-fraction selected arrays
+    final question = currentQuestion.value;
+
+    if (question != null) {
+      for (var item in question.items) {
+        item.selectedCells.value = List.generate(totalCells, (_) => false);
+      }
+
+      // compute canonical assignment of which cells visually belong to which fraction
+      _computeAssignedCells(totalCells);
+    } else {
+      assignedCells.value = List.generate(totalCells, (_) => null);
+    }
+  }
+
+  void _computeAssignedCells(int totalCells) {
+    final q = currentQuestion.value;
+    if (q == null) {
+      assignedCells.value = List.generate(totalCells, (_) => null);
+      return;
+    }
+
+    // compute exact counts per fraction using floor + distribute remainder by fractional part
+    List<double> exact = q.items.map((e) => e.value * totalCells).toList();
+    List<int> base = exact.map((e) => e.floor()).toList();
+    int baseSum = base.fold(0, (a, b) => a + b);
+    int remainder = totalCells - baseSum;
+
+    List<MapEntry<int, double>> fractional = [];
+    for (int i = 0; i < exact.length; i++) {
+      fractional.add(MapEntry(i, exact[i] - base[i]));
+    }
+
+    fractional.sort((a, b) => b.value.compareTo(a.value));
+
+    List<int> counts = List.from(base);
+    for (int i = 0; i < remainder; i++) {
+      counts[fractional[i].key]++;
+    }
+
+    // build assignedCells sequentially so each fraction occupies contiguous cells
+    List<int?> owners = List<int?>.filled(totalCells, null);
+    int cursor = 0;
+    for (int fi = 0; fi < counts.length; fi++) {
+      for (int j = 0; j < counts[fi]; j++) {
+        if (cursor >= totalCells) break;
+        owners[cursor++] = fi;
+      }
+    }
+
+    // leave remaining as null (if any)
+    assignedCells.value = owners;
+
+    // store expected counts for later validation
+    expectedCounts = counts;
   }
 
   void updateColumnsFromDrag(double dx) {
@@ -140,7 +202,12 @@ class GameController extends GetxController {
   void toggleCell(int index) {
     startTimer();
 
-    selectedCells[index] = !selectedCells[index];
+    final q = currentQuestion.value;
+    if (q == null) return;
+
+    int fi = activeFraction.value.clamp(0, q.items.length - 1);
+
+    q.items[fi].selectedCells[index] = !q.items[fi].selectedCells[index];
   }
 
   void startDragging() {
@@ -156,17 +223,44 @@ class GameController extends GetxController {
 
     startTimer();
 
-    selectedCells[index] = true;
+    final q = currentQuestion.value;
+    if (q == null) return;
+
+    int fi = activeFraction.value.clamp(0, q.items.length - 1);
+
+    q.items[fi].selectedCells[index] = true;
   }
 
   void clearSelection() {
-    for (int i = 0; i < selectedCells.length; i++) {
-      selectedCells[i] = false;
+    final q = currentQuestion.value;
+    if (q == null) return;
+
+    for (var item in q.items) {
+      for (int i = 0; i < item.selectedCells.length; i++) {
+        item.selectedCells[i] = false;
+      }
     }
   }
 
   int get selectedCount {
-    return selectedCells.where((cell) => cell).length;
+    final q = currentQuestion.value;
+    if (q == null) return 0;
+
+    int total = 0;
+    int totalCells = rows.value * cols.value;
+
+    for (int i = 0; i < totalCells; i++) {
+      bool any = false;
+      for (var item in q.items) {
+        if (item.selectedCells.length > i && item.selectedCells[i]) {
+          any = true;
+          break;
+        }
+      }
+      if (any) total++;
+    }
+
+    return total;
   }
 
   void checkAnswer() {
@@ -176,34 +270,78 @@ class GameController extends GetxController {
 
     int totalCells = rows.value * cols.value;
 
-    double target = question.totalValue;
+    // Validate per-fraction selections against expected counts
+    if (expectedCounts.length != question.items.length) {
+      // fallback to previous total-based validation
+      double target = question.totalValue;
+      double selectedFraction = selectedCount / totalCells;
 
-    double selectedFraction = selectedCount / totalCells;
-
-    if ((selectedFraction - target).abs() < 0.01) {
-      resultMessage.value = "Correct!";
-
-      if (level == 1) {
-        score.value += 50;
+      if ((selectedFraction - target).abs() < 0.01) {
+        _handleCorrect();
       } else {
-        score.value += 100;
+        _handleWrong();
       }
 
-      Future.delayed(const Duration(seconds: 1), () {
-        nextQuestion();
+      return;
+    }
+
+    // Check each fraction's selected count matches the expected count
+    bool allMatch = true;
+    List<int> mismatches = [];
+
+    for (int i = 0; i < question.items.length; i++) {
+      final item = question.items[i];
+      int selectedFor = item.selectedCells.where((s) => s).length;
+      int expected = expectedCounts[i];
+
+      if (selectedFor != expected) {
+        allMatch = false;
+        mismatches.add(i);
+      }
+    }
+
+    if (allMatch) {
+      _handleCorrect();
+    } else {
+      // centralize wrong handling (decrements chances, sets message and timer)
+      _handleWrong();
+    }
+  }
+
+  void _handleCorrect() {
+    resultMessage.value = "Correct!";
+
+    if (level == 1) {
+      score.value += 50;
+    } else {
+      score.value += 100;
+    }
+
+    Future.delayed(const Duration(seconds: 1), () {
+      nextQuestion();
+    });
+  }
+
+  void _handleWrong() {
+    remainingChances--;
+
+    // Show message depending on remaining chances
+    if (remainingChances > 0) {
+      final String plural = remainingChances > 1 ? 's' : '';
+      resultMessage.value = "Wrong! $remainingChances more chance$plural";
+
+      // cancel any existing message timer
+      _messageTimer?.cancel();
+      _messageTimer = Timer(const Duration(seconds: 2), () {
+        resultMessage.value = '';
       });
     } else {
-      remainingChances--;
+      // last chance used up
+      resultMessage.value = "Wrong!";
 
-      if (remainingChances > 0) {
-        resultMessage.value = "Wrong! $remainingChances chance left";
-      } else {
-        resultMessage.value = "Wrong!";
-
-        Future.delayed(const Duration(seconds: 2), () {
-          nextQuestion();
-        });
-      }
+      Future.delayed(const Duration(seconds: 2), () {
+        nextQuestion();
+      });
     }
   }
 

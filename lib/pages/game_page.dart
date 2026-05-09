@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../controllers/game_controller.dart';
+import '../models/question_model.dart';
 
 class GamePage extends StatelessWidget {
   const GamePage({super.key});
@@ -112,7 +113,7 @@ class GamePage extends StatelessWidget {
                 // =========================
                 Column(
                   children: [
-                    _buildQuestionWidget(controller, question.expression),
+                    _buildQuestionWidget(controller, question),
 
                     const SizedBox(height: 4),
 
@@ -138,6 +139,8 @@ class GamePage extends StatelessWidget {
                 ),
 
                 const SizedBox(height: 12),
+
+                // Fraction chips removed — fractions are selectable by tapping the fraction itself above
 
                 // =========================
                 // TOP HANDLE
@@ -240,45 +243,64 @@ class GamePage extends StatelessWidget {
                             ) {
                               return Expanded(
                                 child: Row(
-                                  children: List.generate(
-                                    controller.cols.value,
-                                    (col) {
-                                      int index =
-                                          row * controller.cols.value + col;
+                                  children: List.generate(controller.cols.value, (
+                                    col,
+                                  ) {
+                                    int index =
+                                        row * controller.cols.value + col;
 
-                                      return Expanded(
-                                        child: MouseRegion(
-                                          onEnter: (_) {
-                                            controller.dragFillCell(index);
+                                    return Expanded(
+                                      child: MouseRegion(
+                                        onEnter: (_) {
+                                          controller.dragFillCell(index);
+                                        },
+                                        child: GestureDetector(
+                                          onTap: () {
+                                            controller.toggleCell(index);
                                           },
-                                          child: GestureDetector(
-                                            onTap: () {
-                                              controller.toggleCell(index);
-                                            },
-                                            child: AnimatedContainer(
-                                              duration: const Duration(
-                                                milliseconds: 120,
-                                              ),
-                                              margin: const EdgeInsets.all(1),
-                                              decoration: BoxDecoration(
-                                                color:
-                                                    controller
-                                                        .selectedCells[index]
-                                                    ? const Color(0xFF8B5CF6)
-                                                    : Colors.white,
-                                                border: Border.all(
-                                                  color: const Color(
-                                                    0xFF9575CD,
-                                                  ),
-                                                  width: 1.4,
-                                                ),
+                                          child: AnimatedContainer(
+                                            duration: const Duration(
+                                              milliseconds: 120,
+                                            ),
+                                            margin: const EdgeInsets.all(1),
+                                            decoration: BoxDecoration(
+                                              color: () {
+                                                int selectingIndex = -1;
+
+                                                for (
+                                                  int si = 0;
+                                                  si < question.items.length;
+                                                  si++
+                                                ) {
+                                                  final it = question.items[si];
+                                                  if (it.selectedCells.length >
+                                                          index &&
+                                                      it.selectedCells[index]) {
+                                                    selectingIndex = si;
+                                                    break;
+                                                  }
+                                                }
+
+                                                if (selectingIndex != -1) {
+                                                  return question
+                                                      .items[selectingIndex]
+                                                      .color
+                                                      .withOpacity(0.95);
+                                                }
+
+                                                // initially empty white grid
+                                                return Colors.white;
+                                              }(),
+                                              border: Border.all(
+                                                color: const Color(0xFF9575CD),
+                                                width: 1.4,
                                               ),
                                             ),
                                           ),
                                         ),
-                                      );
-                                    },
-                                  ),
+                                      ),
+                                    );
+                                  }),
                                 ),
                               );
                             }),
@@ -417,22 +439,32 @@ class GamePage extends StatelessWidget {
 
   static Widget _buildQuestionWidget(
     GameController controller,
-    String expression,
+    QuestionModel question,
   ) {
     bool showAnswer =
         controller.resultMessage.value == "Correct!" ||
         controller.remainingChances == 0;
 
-    List<String> fractions = expression.split('+');
-
     List<Widget> widgets = [];
 
-    for (int i = 0; i < fractions.length; i++) {
-      List<String> parts = fractions[i].trim().split('/');
+    for (int i = 0; i < question.items.length; i++) {
+      final item = question.items[i];
 
-      widgets.add(_fractionWidget(parts[0], parts[1]));
+      widgets.add(
+        GestureDetector(
+          onTap: () {
+            controller.activeFraction.value = i;
+          },
+          child: _fractionWidget(
+            item.numerator.toString(),
+            item.denominator.toString(),
+            item.color,
+            active: controller.activeFraction.value == i,
+          ),
+        ),
+      );
 
-      if (i != fractions.length - 1) {
+      if (i != question.items.length - 1) {
         widgets.add(
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 10),
@@ -453,22 +485,13 @@ class GamePage extends StatelessWidget {
       int numeratorSum = 0;
       int commonDenominator = 1;
 
-      for (String fraction in fractions) {
-        List<String> parts = fraction.trim().split('/');
-
-        int denominator = int.parse(parts[1]);
-
-        commonDenominator *= denominator;
+      for (var item in question.items) {
+        commonDenominator *= item.denominator;
       }
 
-      for (String fraction in fractions) {
-        List<String> parts = fraction.trim().split('/');
-
-        int numerator = int.parse(parts[0]);
-
-        int denominator = int.parse(parts[1]);
-
-        numeratorSum += numerator * (commonDenominator ~/ denominator);
+      for (var item in question.items) {
+        numeratorSum +=
+            item.numerator * (commonDenominator ~/ item.denominator);
       }
 
       int gcdValue = _gcd(numeratorSum, commonDenominator);
@@ -492,49 +515,72 @@ class GamePage extends StatelessWidget {
       );
 
       widgets.add(
-        _fractionWidget(finalNumerator.toString(), finalDenominator.toString()),
+        _fractionWidget(
+          finalNumerator.toString(),
+          finalDenominator.toString(),
+          const Color(0xFF241B4B),
+        ),
       );
     }
 
-    return Wrap(
-      alignment: WrapAlignment.center,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: widgets,
+    return Column(
+      children: [
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: widgets,
+        ),
+        const SizedBox(height: 8),
+        // No legend: the fraction is shown directly above and is tappable
+      ],
     );
   }
 
-  static Widget _fractionWidget(String numerator, String denominator) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          numerator,
-          style: const TextStyle(
-            fontSize: 26,
-            fontWeight: FontWeight.w900,
-            color: Color(0xFF241B4B),
+  static Widget _fractionWidget(
+    String numerator,
+    String denominator,
+    Color color, {
+    bool active = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: active ? Border.all(color: color, width: 2) : null,
+        color: active ? color.withOpacity(0.06) : Colors.transparent,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            numerator,
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+              color: color,
+            ),
           ),
-        ),
 
-        Container(
-          width: 36,
-          height: 3,
-          margin: const EdgeInsets.symmetric(vertical: 3),
-          decoration: BoxDecoration(
-            color: const Color(0xFF241B4B),
-            borderRadius: BorderRadius.circular(10),
+          Container(
+            width: 36,
+            height: 3,
+            margin: const EdgeInsets.symmetric(vertical: 3),
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
-        ),
 
-        Text(
-          denominator,
-          style: const TextStyle(
-            fontSize: 26,
-            fontWeight: FontWeight.w900,
-            color: Color(0xFF241B4B),
+          Text(
+            denominator,
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+              color: color,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
