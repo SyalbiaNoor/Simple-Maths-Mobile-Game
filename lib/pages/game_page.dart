@@ -4,8 +4,15 @@ import 'package:get/get.dart';
 import '../controllers/game_controller.dart';
 import '../models/question_model.dart';
 
-class GamePage extends StatelessWidget {
+class GamePage extends StatefulWidget {
   const GamePage({super.key});
+
+  @override
+  State<GamePage> createState() => _GamePageState();
+}
+
+class _GamePageState extends State<GamePage> {
+  final GlobalKey _gridKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -183,15 +190,23 @@ class GamePage extends StatelessWidget {
                     children: [
                       SizedBox(
                         width: 44,
-                        height: controller.containerHeight - 42,
+                        height:
+                            controller.containerHeight -
+                            42 -
+                            controller.handleInset,
                         child: Stack(
                           children: [
                             Positioned(
                               top: controller.verticalHandleY.value
                                   .clamp(
                                     0,
-                                    (controller.containerHeight - 84) > 0
-                                        ? controller.containerHeight - 84
+                                    (controller.containerHeight -
+                                                84 -
+                                                controller.handleInset) >
+                                            0
+                                        ? controller.containerHeight -
+                                              84 -
+                                              controller.handleInset
                                         : 0,
                                   )
                                   .toDouble(),
@@ -212,13 +227,124 @@ class GamePage extends StatelessWidget {
                       ),
 
                       GestureDetector(
-                        onPanStart: (_) {
-                          controller.startDragging();
+                        onPanStart: (details) {
+                          // determine starting cell and initialize drag mode
+                          // use the grid's RenderBox to get coordinates relative to the grid
+                          try {
+                            final box =
+                                _gridKey.currentContext?.findRenderObject()
+                                    as RenderBox?;
+                            final local = box != null
+                                ? box.globalToLocal(details.globalPosition)
+                                : details.localPosition;
+
+                            final double dx = local.dx - 5;
+                            final double dy = local.dy - 5;
+
+                            if (dx < 0 || dy < 0) {
+                              controller.startDragging();
+                            } else {
+                              final int cols = controller.cols.value;
+                              final int rows = controller.rows.value;
+
+                              if (cols > 0 && rows > 0) {
+                                final double innerW = box != null
+                                    ? ((box.size.width - 10) > 0
+                                          ? box.size.width - 10
+                                          : box.size.width)
+                                    : ((controller.containerWidth - 10) > 0
+                                          ? controller.containerWidth - 10
+                                          : controller.containerWidth);
+
+                                final double innerH = box != null
+                                    ? ((box.size.height - 10) > 0
+                                          ? box.size.height - 10
+                                          : box.size.height)
+                                    : ((controller.containerHeight - 10) > 0
+                                          ? controller.containerHeight - 10
+                                          : controller.containerHeight);
+
+                                final double cellW = innerW / cols;
+                                final double cellH = innerH / rows;
+
+                                int col = (dx / cellW).floor();
+                                int row = (dy / cellH).floor();
+
+                                if (col < 0) col = 0;
+                                if (col >= cols) col = cols - 1;
+                                if (row < 0) row = 0;
+                                if (row >= rows) row = rows - 1;
+
+                                int index = row * cols + col;
+                                controller.startDraggingAt(index);
+                              } else {
+                                controller.startDragging();
+                              }
+                            }
+                          } catch (e) {
+                            controller.startDragging();
+                          }
+                        },
+                        onPanUpdate: (details) {
+                          // convert drag position into grid cell index and fill it
+                          try {
+                            final box =
+                                _gridKey.currentContext?.findRenderObject()
+                                    as RenderBox?;
+                            final local = box != null
+                                ? box.globalToLocal(details.globalPosition)
+                                : details.localPosition;
+
+                            // account for container padding of 5 on all sides
+                            final double dx = local.dx - 5;
+                            final double dy = local.dy - 5;
+
+                            if (dx < 0 || dy < 0) return;
+
+                            final int cols = controller.cols.value;
+                            final int rows = controller.rows.value;
+
+                            if (cols <= 0 || rows <= 0) return;
+
+                            final double innerW = box != null
+                                ? ((box.size.width - 10) > 0
+                                      ? box.size.width - 10
+                                      : box.size.width)
+                                : ((controller.containerWidth - 10) > 0
+                                      ? controller.containerWidth - 10
+                                      : controller.containerWidth);
+
+                            final double innerH = box != null
+                                ? ((box.size.height - 10) > 0
+                                      ? box.size.height - 10
+                                      : box.size.height)
+                                : ((controller.containerHeight - 10) > 0
+                                      ? controller.containerHeight - 10
+                                      : controller.containerHeight);
+
+                            final double cellW = innerW / cols;
+                            final double cellH = innerH / rows;
+
+                            int col = (dx / cellW).floor();
+                            int row = (dy / cellH).floor();
+
+                            if (col < 0) col = 0;
+                            if (col >= cols) col = cols - 1;
+                            if (row < 0) row = 0;
+                            if (row >= rows) row = rows - 1;
+
+                            int index = row * cols + col;
+
+                            controller.dragFillCell(index);
+                          } catch (e) {
+                            // ignore conversion errors
+                          }
                         },
                         onPanEnd: (_) {
                           controller.stopDragging();
                         },
                         child: Container(
+                          key: _gridKey,
                           width: controller.containerWidth,
                           height: controller.containerHeight,
                           padding: const EdgeInsets.all(5),
@@ -310,15 +436,23 @@ class GamePage extends StatelessWidget {
 
                       SizedBox(
                         width: 44,
-                        height: controller.containerHeight - 42,
+                        height:
+                            controller.containerHeight -
+                            42 -
+                            controller.handleInset,
                         child: Stack(
                           children: [
                             Positioned(
                               top: controller.verticalHandleY.value
                                   .clamp(
                                     0,
-                                    (controller.containerHeight - 84) > 0
-                                        ? controller.containerHeight - 84
+                                    (controller.containerHeight -
+                                                84 -
+                                                controller.handleInset) >
+                                            0
+                                        ? controller.containerHeight -
+                                              84 -
+                                              controller.handleInset
                                         : 0,
                                   )
                                   .toDouble(),

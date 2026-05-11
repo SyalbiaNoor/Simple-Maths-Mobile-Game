@@ -45,9 +45,17 @@ class GameController extends GetxController {
   double containerWidth = 260;
   double containerHeight = 420;
 
+  // inset padding so side handles don't reach the absolute frame edges
+  double handleInset = 12.0;
+
   RxDouble horizontalHandleX = 0.0.obs;
 
   RxDouble verticalHandleY = 0.0.obs;
+
+  // drag mode: 'paint' or 'erase'
+  String _dragMode = 'paint';
+  // visited indices during current drag to avoid repeated toggles
+  final Set<int> _dragVisited = {};
 
   @override
   void onInit() {
@@ -177,8 +185,9 @@ class GameController extends GetxController {
       maxHorizontalRange,
     );
 
+    // Map horizontal handle (0..maxHorizontalRange) to columns (1..12)
     cols.value =
-        ((horizontalHandleX.value / maxHorizontalRange) * 9).round() + 1;
+        ((horizontalHandleX.value / maxHorizontalRange) * 11).round() + 1;
 
     updateGrid();
   }
@@ -188,13 +197,16 @@ class GameController extends GetxController {
 
     verticalHandleY.value += dy;
 
-    final double maxVerticalRange = (containerHeight - 84) > 0
-        ? (containerHeight - 84)
+    // Account for triangle size: side stack height is containerHeight - 42,
+    // so the max top position is that minus the triangle height (42) => containerHeight - 84.
+    final double maxVerticalRange = (containerHeight - 84 - handleInset) > 0
+        ? (containerHeight - 84 - handleInset)
         : 1; // keep positive divisor (triangle height accounted)
 
     verticalHandleY.value = verticalHandleY.value.clamp(0, maxVerticalRange);
 
-    rows.value = ((verticalHandleY.value / maxVerticalRange) * 9).round() + 1;
+    // Map vertical handle (0..maxVerticalRange) to rows (1..12)
+    rows.value = ((verticalHandleY.value / maxVerticalRange) * 11).round() + 1;
 
     updateGrid();
   }
@@ -214,21 +226,60 @@ class GameController extends GetxController {
     isDragging = true;
   }
 
-  void stopDragging() {
-    isDragging = false;
-  }
-
-  void dragFillCell(int index) {
-    if (!isDragging) return;
-
-    startTimer();
+  void startDraggingAt(int startIndex) {
+    isDragging = true;
+    _dragVisited.clear();
 
     final q = currentQuestion.value;
     if (q == null) return;
 
     int fi = activeFraction.value.clamp(0, q.items.length - 1);
 
-    q.items[fi].selectedCells[index] = true;
+    // determine initial mode based on whether the start cell is already selected by active fraction
+    if (q.items[fi].selectedCells.length > startIndex &&
+        q.items[fi].selectedCells[startIndex]) {
+      _dragMode = 'erase';
+    } else {
+      _dragMode = 'paint';
+    }
+
+    _applyDragAction(startIndex);
+  }
+
+  void stopDragging() {
+    isDragging = false;
+    _dragVisited.clear();
+  }
+
+  void _applyDragAction(int index) {
+    if (!isDragging) return;
+
+    final q = currentQuestion.value;
+    if (q == null) return;
+
+    int fi = activeFraction.value.clamp(0, q.items.length - 1);
+
+    if (_dragVisited.contains(index)) return;
+    _dragVisited.add(index);
+
+    if (_dragMode == 'erase') {
+      if (q.items[fi].selectedCells.length > index &&
+          q.items[fi].selectedCells[index]) {
+        q.items[fi].selectedCells[index] = false;
+      }
+    } else {
+      if (q.items[fi].selectedCells.length > index) {
+        q.items[fi].selectedCells[index] = true;
+      }
+    }
+  }
+
+  void dragFillCell(int index) {
+    // kept for backward compatibility with mouse hover - apply current drag action
+    if (!isDragging) return;
+
+    startTimer();
+    _applyDragAction(index);
   }
 
   void clearSelection() {
@@ -285,25 +336,48 @@ class GameController extends GetxController {
       return;
     }
 
-    // Check each fraction's selected count matches the expected count
-    bool allMatch = true;
-    List<int> mismatches = [];
+    // Validate per-fraction selection proportions (accepts simplified or unsimplified totals)
+    int totalSelected = 0;
+    List<int> selectedFor = List.filled(question.items.length, 0);
+
+    for (int i = 0; i < question.items.length; i++) {
+      selectedFor[i] = question.items[i].selectedCells.where((s) => s).length;
+      totalSelected += selectedFor[i];
+    }
+
+    // expected total cells for the fractions (may be < totalCells when totalValue < 1)
+    int expectedTotal = (question.totalValue * totalCells).round();
+
+    // allow small rounding tolerance of 1 cell
+    if ((totalSelected - expectedTotal).abs() > 1) {
+      _handleWrong();
+      return;
+    }
+
+    if (totalSelected == 0) {
+      _handleWrong();
+      return;
+    }
+
+    // Check proportions per fraction relative to the total selected cells
+    bool proportionsMatch = true;
 
     for (int i = 0; i < question.items.length; i++) {
       final item = question.items[i];
-      int selectedFor = item.selectedCells.where((s) => s).length;
-      int expected = expectedCounts[i];
+      double expectedProp =
+          item.value /
+          question.totalValue; // fraction of the whole (normalized)
+      double actualProp = selectedFor[i] / totalSelected;
 
-      if (selectedFor != expected) {
-        allMatch = false;
-        mismatches.add(i);
+      if ((expectedProp - actualProp).abs() > 0.03) {
+        proportionsMatch = false;
+        break;
       }
     }
 
-    if (allMatch) {
+    if (proportionsMatch) {
       _handleCorrect();
     } else {
-      // centralize wrong handling (decrements chances, sets message and timer)
       _handleWrong();
     }
   }
